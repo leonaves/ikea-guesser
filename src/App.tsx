@@ -407,9 +407,11 @@ function App() {
                     {getAccuracyMessage(scores[viewingRound]).message}
                   </div>
                   <div className="mt-3 space-y-1">
-                    <div className="text-gray-600">
-                      Your guess: <span className="font-semibold">{formatPrice(guesses[viewingRound], config.currency, config.locale)}</span>
-                    </div>
+                    {guesses[viewingRound] != null && (
+                      <div className="text-gray-600">
+                        Your guess: <span className="font-semibold">{formatPrice(guesses[viewingRound], config.currency, config.locale)}</span>
+                      </div>
+                    )}
                     <div className="text-gray-900">
                       Actual price: <span className="font-bold text-[#0058a3] text-xl">{formatPrice(products[viewingRound].price.currentPrice, config.currency, config.locale)}</span>
                     </div>
