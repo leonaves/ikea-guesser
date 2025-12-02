@@ -19,6 +19,7 @@ interface DailyProgress {
   date: string;
   currentRound: number;
   scores: number[];
+  guesses: number[];
   completed: boolean;
 }
 
@@ -34,6 +35,8 @@ function App() {
   const [countryCode, setCountryCode] = useState<string>('us');
   const [showImageModal, setShowImageModal] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [guesses, setGuesses] = useState<number[]>([]);
+  const [viewingRound, setViewingRound] = useState<number | null>(null);
 
   const config = getCountryConfig(countryCode);
   const product = products[currentRound] || null;
@@ -56,11 +59,12 @@ function App() {
   }, []);
 
   // Save progress to localStorage
-  const saveProgress = useCallback((round: number, newScores: number[], completed: boolean) => {
+  const saveProgress = useCallback((round: number, newScores: number[], newGuesses: number[], completed: boolean) => {
     const progress: DailyProgress = {
       date: getTodayKey(),
       currentRound: round,
       scores: newScores,
+      guesses: newGuesses,
       completed,
     };
     localStorage.setItem('ikea-guesser-progress', JSON.stringify(progress));
@@ -85,11 +89,13 @@ function App() {
       if (savedProgress && savedProgress.completed) {
         // Already finished today
         setScores(savedProgress.scores);
+        setGuesses(savedProgress.guesses || []);
         setCurrentRound(ROUNDS_PER_DAY);
         setGameState('finished');
       } else if (savedProgress) {
         // Resume from saved progress
         setScores(savedProgress.scores);
+        setGuesses(savedProgress.guesses || []);
         setCurrentRound(savedProgress.currentRound);
         const nextProduct = dailyProducts[savedProgress.currentRound];
         if (nextProduct) {
@@ -122,7 +128,9 @@ function App() {
     setAccuracy(accuracyValue);
 
     const newScores = [...scores, accuracyValue];
+    const newGuesses = [...guesses, guess];
     setScores(newScores);
+    setGuesses(newGuesses);
 
     // Show confetti for great guesses
     if (accuracyValue >= 85) {
@@ -132,7 +140,7 @@ function App() {
 
     // Check if this was the last round
     const isLastRound = currentRound >= ROUNDS_PER_DAY - 1;
-    saveProgress(currentRound + 1, newScores, isLastRound);
+    saveProgress(currentRound + 1, newScores, newGuesses, isLastRound);
 
     setGameState('revealed');
   };
@@ -206,24 +214,45 @@ function App() {
     );
   };
 
+  const handleDotClick = (roundIndex: number) => {
+    // Only allow clicking on completed rounds
+    if (roundIndex < scores.length) {
+      setViewingRound(roundIndex);
+    }
+  };
+
+  const handleBackToGame = () => {
+    setViewingRound(null);
+  };
+
   const renderProgressDots = () => (
     <div className="flex gap-2 justify-center mb-4">
-      {[...Array(ROUNDS_PER_DAY)].map((_, i) => (
-        <div
-          key={i}
-          className={`w-3 h-3 rounded-full transition-all ${
-            i < scores.length
-              ? scores[i] >= 70
-                ? 'bg-green-400'
-                : scores[i] >= 40
-                ? 'bg-yellow-400'
-                : 'bg-red-400'
-              : i === currentRound && gameState !== 'finished'
-              ? 'bg-white ring-2 ring-[#ffdb00]'
-              : 'bg-white/30'
-          }`}
-        />
-      ))}
+      {[...Array(ROUNDS_PER_DAY)].map((_, i) => {
+        const isCompleted = i < scores.length;
+        const isViewing = viewingRound === i;
+        const isCurrent = i === currentRound && gameState !== 'finished' && viewingRound === null;
+
+        return (
+          <button
+            key={i}
+            onClick={() => handleDotClick(i)}
+            disabled={!isCompleted}
+            className={`w-3 h-3 rounded-full transition-all ${
+              isCompleted
+                ? `cursor-pointer hover:scale-125 ${
+                    scores[i] >= 70
+                      ? 'bg-green-400'
+                      : scores[i] >= 40
+                      ? 'bg-yellow-400'
+                      : 'bg-red-400'
+                  } ${isViewing ? 'ring-2 ring-white scale-125' : ''}`
+                : isCurrent
+                ? 'bg-white ring-2 ring-[#ffdb00]'
+                : 'bg-white/30 cursor-default'
+            }`}
+          />
+        );
+      })}
     </div>
   );
 
@@ -306,7 +335,7 @@ function App() {
           </div>
         )}
 
-        {gameState === 'finished' && (
+        {gameState === 'finished' && viewingRound === null && (
           <div className="p-8 flex flex-col items-center justify-center min-h-[400px]">
             <div className="text-6xl mb-4">🏆</div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Today's Complete!</h2>
@@ -317,14 +346,15 @@ function App() {
             {/* Score breakdown */}
             <div className="flex gap-2 mb-6">
               {scores.map((score, i) => (
-                <div
+                <button
                   key={i}
-                  className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg ${
+                  onClick={() => handleDotClick(i)}
+                  className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg cursor-pointer hover:scale-110 transition-transform ${
                     score >= 70 ? 'bg-green-100' : score >= 40 ? 'bg-yellow-100' : 'bg-red-100'
                   }`}
                 >
                   {getAccuracyMessage(score).emoji}
-                </div>
+                </button>
               ))}
             </div>
 
@@ -335,11 +365,81 @@ function App() {
               {copied ? '✓ Copied!' : 'Share Results'}
             </button>
 
-            <p className="text-gray-500 text-sm mt-4">Come back tomorrow for new products!</p>
+            <p className="text-gray-500 text-sm mt-4">Click a round above to review • Come back tomorrow!</p>
           </div>
         )}
 
-        {(gameState === 'guessing' || gameState === 'revealed') && product && (
+        {/* Viewing past round */}
+        {viewingRound !== null && products[viewingRound] && (
+          <>
+            <div className="relative bg-gray-100 aspect-square">
+              <img
+                src={products[viewingRound].mainImageUrl}
+                alt={products[viewingRound].mainImageAlt || products[viewingRound].name}
+                className="w-full h-full object-contain p-4"
+              />
+              {products[viewingRound].contextualImageUrl && (
+                <button
+                  onClick={() => setShowImageModal(true)}
+                  className="absolute bottom-2 right-2 w-16 h-16 rounded-lg border-2 border-white shadow-lg overflow-hidden hover:scale-110 transition-transform cursor-pointer"
+                >
+                  <img
+                    src={products[viewingRound].contextualImageUrl}
+                    alt="View larger"
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              )}
+              <div className="absolute top-2 left-2 bg-black/60 text-white px-3 py-1 rounded-full text-sm font-medium">
+                Round {viewingRound + 1}/{ROUNDS_PER_DAY}
+              </div>
+            </div>
+
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-1">{products[viewingRound].name}</h2>
+              <p className="text-gray-500 mb-2">{products[viewingRound].typeName}</p>
+              {renderStars(products[viewingRound].ratingValue)}
+
+              <div className={`mt-6 p-4 rounded-xl ${scores[viewingRound] >= 70 ? 'bg-green-50' : scores[viewingRound] >= 40 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+                <div className="text-center">
+                  <div className="text-4xl mb-2">{getAccuracyMessage(scores[viewingRound]).emoji}</div>
+                  <div className={`text-xl font-bold ${scores[viewingRound] >= 70 ? 'text-green-600' : scores[viewingRound] >= 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+                    {getAccuracyMessage(scores[viewingRound]).message}
+                  </div>
+                  <div className="mt-3 space-y-1">
+                    <div className="text-gray-600">
+                      Your guess: <span className="font-semibold">{formatPrice(guesses[viewingRound], config.currency, config.locale)}</span>
+                    </div>
+                    <div className="text-gray-900">
+                      Actual price: <span className="font-bold text-[#0058a3] text-xl">{formatPrice(products[viewingRound].price.currentPrice, config.currency, config.locale)}</span>
+                    </div>
+                    <div className="text-sm text-gray-500 mt-2">
+                      Accuracy: {scores[viewingRound].toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <a
+                href={products[viewingRound].pipUrl.startsWith('http') ? products[viewingRound].pipUrl : `https://www.ikea.com${products[viewingRound].pipUrl}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block mt-4 text-center text-[#0058a3] hover:underline text-sm"
+              >
+                View on IKEA.com →
+              </a>
+
+              <button
+                onClick={handleBackToGame}
+                className="w-full mt-4 bg-[#0058a3] text-white py-4 rounded-full font-bold text-lg hover:bg-[#004280] transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Back to {gameState === 'finished' ? 'Results' : 'Game'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {(gameState === 'guessing' || gameState === 'revealed') && product && viewingRound === null && (
           <>
             {/* Product image */}
             <div className="relative bg-gray-100 aspect-square">
@@ -433,7 +533,7 @@ function App() {
 
                   {/* View on IKEA link */}
                   <a
-                    href={`https://www.ikea.com${product.pipUrl}`}
+                    href={product.pipUrl.startsWith('http') ? product.pipUrl : `https://www.ikea.com${product.pipUrl}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block mt-4 text-center text-[#0058a3] hover:underline text-sm"
